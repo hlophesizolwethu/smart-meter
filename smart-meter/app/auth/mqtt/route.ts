@@ -2,8 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import mqtt, { MqttClient } from 'mqtt';
 
-const brokerUrl = 'mqtt://localhost:1883'; // Replace with your MQTT broker's address
-const topic = 'smart-meter/units';
+
+const brokerUrl = 'wss://broker.hivemq.com:8000/mqtt'; // Replace with ow MQTT broker's address
+const topic = 'smartmeter/reload';
 
 const client: MqttClient = mqtt.connect(brokerUrl);
 
@@ -16,27 +17,37 @@ client.on('error', (error) => {
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    const requestData = await request.json();
-    const message = requestData.message;
+  const client = mqtt.connect('ws://broker.hivemq.com:8000/mqtt');
 
-    if (typeof message === 'undefined' || message === null) {
-      return NextResponse.json({ error: 'Message is required in the request body.' }, { status: 400 });
-    }
+  return new Promise(async (resolve) => {
+    try {
+      const { message } = await request.json();
 
-    return new Promise((resolve) => {
-      client.publish(topic, String(message), (error?: Error) => {
-        if (error) {
-          console.error('Error publishing message to MQTT:', error);
-          resolve(NextResponse.json({ error: 'Failed to publish message to MQTT.' }, { status: 500 }));
-        } else {
-          console.log(`Message "${message}" published to topic "${topic}"`);
-          resolve(NextResponse.json({ message: 'Message published successfully to MQTT.' }));
-        }
+      if (!message) {
+        resolve(NextResponse.json({ error: 'Message is required' }, { status: 400 }));
+        return;
+      }
+
+      client.on('connect', () => {
+        client.publish(topic, String(message), (err) => {
+          client.end(); // Cleanly disconnect after publishing
+          if (err) {
+            console.error('Error publishing:', err);
+            resolve(NextResponse.json({ error: 'MQTT publish failed' }, { status: 500 }));
+          } else {
+            console.log(`✅ Published "${message}" to ${topic}`);
+            resolve(NextResponse.json({ message: 'Published successfully' }));
+          }
+        });
       });
-    });
-  } catch (error) {
-    console.error('Error processing POST request:', error);
-    return NextResponse.json({ error: 'An internal server error occurred.' }, { status: 500 });
-  }
+
+      client.on('error', (err) => {
+        console.error('MQTT connection error:', err);
+        resolve(NextResponse.json({ error: 'MQTT connection failed' }, { status: 500 }));
+      });
+    } catch (error) {
+      console.error('Request error:', error);
+      resolve(NextResponse.json({ error: 'Internal server error' }, { status: 500 }));
+    }
+  });
 }

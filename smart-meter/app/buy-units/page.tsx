@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ArrowLeft, Zap, CreditCard, Smartphone, Building2 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,15 +10,37 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
+import mqtt from "mqtt"
+
 
 export default function BuyUnits() {
   const [amount, setAmount] = useState("")
   const [paymentMethod, setPaymentMethod] = useState("card")
   const [autoLoad, setAutoLoad] = useState(true)
   const [threshold, setThreshold] = useState("10")
+  const [feedback, setFeedback] = useState("")
 
   const quickAmounts = [50, 100, 200, 500]
   const unitRate = 5.0 // E5.00 per kWh
+
+  const topic = "smartmeter/reload"
+  const [client, setClient] = useState<any>(null)
+
+  useEffect(() => {
+    const mqttClient = mqtt.connect("wss://broker.hivemq.com:8000/mqtt")
+    mqttClient.on("connect", () => {
+      console.log("✅ MQTT connected")
+    })
+    mqttClient.on("error", (err) => {
+      console.error("❌ MQTT error:", err)
+    })
+    setClient(mqttClient)
+
+    return () => {
+      mqttClient.end()
+    }
+  }, [])
+
 
   const calculateUnits = (amount: number) => {
     return (amount / unitRate).toFixed(1)
@@ -26,6 +48,15 @@ export default function BuyUnits() {
 
   const handlePurchase = () => {
     // Handle purchase logic here
+    const parsedAmount = parseFloat(amount)
+    if (isNaN(parsedAmount) || parsedAmount <= 0 || !client?.connected) {
+      setFeedback("Please enter a valid amount and ensure MQTT is connected.")
+      return
+    }
+
+    const unitsToSend = calculateUnits(parsedAmount)
+    client.publish(topic, unitsToSend)
+    setFeedback(`✅ Sent ${unitsToSend} kWh to your smart meter.`)
     console.log("Processing purchase:", { amount, paymentMethod, autoLoad })
   }
 
